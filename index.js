@@ -10,6 +10,7 @@ import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import compression from "compression";
 import morgan from "morgan";
+import rateLimit from 'express-rate-limit';
 import AuthRouter from "./server/routers/auth.route.js";
 import DB from "./server/connections/DB.connections.js";
 import FormRouter from "./server/routers/form.route.js";
@@ -22,7 +23,7 @@ configDotenv();
 DB.connect(process.env.MONGO_DB_URL);
 
 const app = express();
-const {NETWORK_IP, CLIENT_PORT, SERVER_PORT} = process.env;
+const {NETWORK_IP, CLIENT_PORT, SERVER_PORT, CLIENT_URL} = process.env;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,13 +34,26 @@ app.use(compression());
 app.use(express.json({ limit: '16mb' }));
 
 // Rate Limiter...
-// const limiter = rateLimit({
-//     windowMs: 15 * 60 * 1000,
-//     max: 100,
-//     message: "Too many requests from this IP, please try again later.",
-// });
-// app.use(limiter);
+const globalLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 100,
+    message: "Too many requests from this IP, please try again later.",
+});
+app.use(globalLimiter);
 
+// Login endpoint limiter: 10 requests/min/IP
+app.use("/api/login", rateLimit({
+    windowMs: 1 * 60 * 1000,
+    max: 10,
+    message: "Too many login attempts, please try again later.",
+}));
+
+// Apply leave endpoint limiter: 10 requests/min/IP
+app.use("/api/apply-leave", rateLimit({
+    windowMs: 1 * 60 * 1000,
+    max: 10,
+    message: "Too many leave form submissions, please try again later.",
+}));
 // Logging...
 app.use(morgan(process.env.STATUS === "development" ? "dev" : "combined"));
 
@@ -53,7 +67,7 @@ app.use(
         origin:
             process.env.STATUS === "development"
                 ? [`http://localhost:${CLIENT_PORT}`, `http://${NETWORK_IP}:${CLIENT_PORT}`]
-                : "https://example.app.com",
+                : CLIENT_URL,
         methods: ["GET", "POST", "PUT"],
         credentials: true,
     })
